@@ -1,120 +1,109 @@
 ﻿#region Copyright Notice
+
 /*
  * gitter - VCS repository management tool
  * Copyright (C) 2013  Popovskiy Maxim Vladimirovitch <amgine.gitter@gmail.com>
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #endregion
 
 namespace gitter.Git.Gui;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Windows.Forms;
 
-using gitter.Framework;
-using gitter.Framework.Controls;
+using AccessLayer;
 
-using gitter.Git.AccessLayer;
+using Dialogs;
 
-using Resources = gitter.Git.Gui.Properties.Resources;
+using Framework;
+using Framework.Controls;
+
+using Views;
+
+using Resources = Properties.Resources;
 
 internal sealed class MainGitMenus : IDisposable
 {
-	private readonly GuiProvider _guiProvider;
+	private readonly List<ViewMenuItem> _viewMenuItems = new();
+	private ToolStripMenuItem _gitMenu;
+	private ToolStripMenuItem[] _menus;
 
 	private Repository _repository;
-	private ToolStripMenuItem[] _menus;
-	private ToolStripMenuItem _gitMenu;
-	private readonly List<ViewMenuItem> _viewMenuItems = new();
 
 	public MainGitMenus(GuiProvider guiProvider)
 	{
 		Verify.Argument.IsNotNull(guiProvider);
 
-		_guiProvider = guiProvider;
+		Gui = guiProvider;
 
 		var repository = guiProvider.Repository;
 
-		_menus = new ToolStripMenuItem[]
+		_menus = new[]
 		{
 			_gitMenu = new ToolStripMenuItem(
-				Resources.StrGit),
+				Resources.StrGit)
 		};
 
 		var dpiBindings = guiProvider.MainFormDpiBindings;
 
-		//_gitMenu.DropDownItems.Add(new ToolStripMenuItem(
-		//    Resources.StrCheckout.AddEllipsis(), CachedResources.Bitmaps["ImgCheckout"], OnCheckoutClick));
-		//_gitMenu.DropDownItems.Add(new ToolStripMenuItem(
-		//    Resources.StrAddRemote.AddEllipsis(), CachedResources.Bitmaps["ImgRemoteAdd"], OnAddRemoteClick));
-		var branchAdd = new ToolStripMenuItem(Resources.StrCreateBranch.AddEllipsis(), null, OnCreateBranchClick)
-		{
-			ShortcutKeys = Keys.Control | Keys.B,
-		};
-		dpiBindings.BindImage(branchAdd, Icons.BranchAdd);
-		_gitMenu.DropDownItems.Add(branchAdd);
-
-		var tagAdd = new ToolStripMenuItem(Resources.StrCreateTag.AddEllipsis(), null, OnCreateTagClick)
-		{
-			ShortcutKeys = Keys.Control | Keys.T,
-		};
-		dpiBindings.BindImage(tagAdd, Icons.TagAdd);
-		_gitMenu.DropDownItems.Add(tagAdd);
+		AddToolStripMenuItem(Resources.StrCreateBranch.AddEllipsis(), OnCreateBranchClick, Keys.Control | Keys.B,
+			Icons.BranchAdd);
+		AddToolStripMenuItem(Resources.StrCreateTag.AddEllipsis(), OnCreateTagClick, Keys.Control | Keys.T,
+			Icons.TagAdd);
+		AddToolStripMenuItem(Resources.StrCommit.AddEllipsis(), OnCommitClick, Keys.Control | Keys.C, Icons.Commit);
+		AddToolStripMenuItem(Resources.StrFetch.AddEllipsis(), OnFetchCLick, Keys.Control | Keys.Shift | Keys.F,
+			Icons.Fetch);
+		AddToolStripMenuItem(Resources.StrPull.AddEllipsis(), OnPullClick, Keys.Control | Keys.P, Icons.Pull);
+		AddToolStripMenuItem(Resources.StrPush.AddEllipsis(), OnPushClick, Keys.Control | Keys.Alt | Keys.P,
+			Icons.Push);
+		AddToolStripMenuItem(Resources.StrStageAll.AddEllipsis(), OnStageAllClick, Keys.Control | Keys.S,
+			Icons.StageAll);
+		AddToolStripMenuItem((Resources.StrStageAll + " and " + Resources.StrCommit).AddEllipsis(),
+			OnStageAllAndCommitClick, Keys.Control | Keys.Alt | Keys.S, Icons.Pull);
 
 		_gitMenu.DropDownItems.Add(new ToolStripSeparator());
 
-		var gitGui = new ToolStripMenuItem(Resources.StrlGui, null, OnGitGuiClick)
-		{
-			ShortcutKeys = Keys.F5,
-		};
-		dpiBindings.BindImage(gitGui, Icons.Git);
-		_gitMenu.DropDownItems.Add(gitGui);
-		var gitk = new ToolStripMenuItem(Resources.StrlGitk, null, OnGitGitkClick)
-		{
-			Enabled = StandardTools.CanStartGitk,
-			ShortcutKeys = Keys.F6,
-		};
-		dpiBindings.BindImage(gitk, Icons.Git);
-		_gitMenu.DropDownItems.Add(gitk);
-		var bash = new ToolStripMenuItem(Resources.StrlBash, null, OnGitBashClick)
-		{
-			Enabled = StandardTools.CanStartBash,
-			ShortcutKeys = Keys.F7,
-		};
-		dpiBindings.BindImage(bash, Icons.Terminal);
-		_gitMenu.DropDownItems.Add(bash);
-		var term = new ToolStripMenuItem(Resources.StrlCmd, null, OnCmdClick)
-		{
-			ShortcutKeys = Keys.F8,
-		};
-		dpiBindings.BindImage(term, Icons.Terminal);
-		_gitMenu.DropDownItems.Add(term);
+		AddToolStripMenuItem(Resources.StrlGui, OnGitGuiClick, Keys.F5, Icons.Git);
+		AddToolStripMenuItem(Resources.StrlGitk, OnGitGitkClick, Keys.F6, Icons.Git, StandardTools.CanStartGitk);
+		AddToolStripMenuItem(Resources.StrlBash, OnGitBashClick, Keys.F7, Icons.Terminal, StandardTools.CanStartBash);
+		AddToolStripMenuItem(Resources.StrlCmd, OnCmdClick, Keys.F8, Icons.Terminal);
 
 		foreach(var factory in Gui.ViewFactories)
-		{
 			if(factory.IsSingleton)
 			{
 				var item = new ViewMenuItem(factory);
 				_viewMenuItems.Add(item);
 			}
-		}
 
-		if(repository is not null)
+		if(repository is not null) AttachToRepository(repository);
+		return;
+
+		void AddToolStripMenuItem(string text, EventHandler onClick, Keys keys, IImageProvider provider,
+			bool enabled = true)
 		{
-			AttachToRepository(repository);
+			var item = new ToolStripMenuItem(text, null, onClick)
+			{
+				Enabled = enabled,
+				ShortcutKeys = keys
+			};
+			dpiBindings.BindImage(item, provider);
+			_gitMenu.DropDownItems.Add(item);
 		}
 	}
 
@@ -122,27 +111,82 @@ internal sealed class MainGitMenus : IDisposable
 
 	public IReadOnlyList<ViewMenuItem> ViewMenuItems => _viewMenuItems;
 
-	public GuiProvider Gui => _guiProvider;
+	public GuiProvider Gui { get; }
 
-	//private void OnCheckoutClick(object sender, EventArgs e)
-	//{
-	//    _gui.StartCheckoutDialog();
-	//}
+	public Repository Repository
+	{
+		get => _repository;
+		set
+		{
+			if(_repository != value)
+			{
+				if(_repository is not null) DetachFromRepository(_repository);
+
+				if(value is not null) AttachToRepository(value);
+			}
+		}
+	}
+
+	#region IDisposable Members
+
+	public void Dispose()
+	{
+		if(_gitMenu is not null)
+		{
+			_gitMenu.Dispose();
+			_gitMenu = null;
+		}
+
+		_menus = null;
+		_repository = null;
+	}
+
+	#endregion
+
+	private void OnStageAllAndCommitClick(object sender, EventArgs e)
+	{
+		OnStageAllClick(sender, e);
+		var item = (ToolStripItem)sender;
+		var parent = Utility.GetParentControl(item);
+
+		using var dlg = new CommitDialog(_repository);
+		dlg.Run(parent);
+	}
+
+	private void OnStageAllClick(object sender, EventArgs e)
+	{
+		Repository.Status.StageAll();
+	}
+
+	private void OnPushClick(object sender, EventArgs e)
+	{
+		Gui.StartPushDialog();
+	}
+
+	private void OnPullClick(object sender, EventArgs e)
+	{
+		GuiCommands.Pull(Gui.Environment.MainForm, Repository);
+	}
+
+	private void OnFetchCLick(object sender, EventArgs e)
+	{
+		GuiCommands.Fetch(Gui.Environment.MainForm, Repository);
+	}
 
 	private void OnCreateBranchClick(object sender, EventArgs e)
 	{
-		_guiProvider.StartCreateBranchDialog();
+		Gui.StartCreateBranchDialog();
 	}
 
 	private void OnCreateTagClick(object sender, EventArgs e)
 	{
-		_guiProvider.StartCreateTagDialog();
+		Gui.StartCreateTagDialog();
 	}
 
-	//private void OnAddRemoteClick(object sender, EventArgs e)
-	//{
-	//    _gui.StartAddRemoteDialog();
-	//}
+	private void OnCommitClick(object sender, EventArgs e)
+	{
+		Gui.Environment.ViewDockService.ShowView(Guids.CommitViewGuid);
+	}
 
 	private void OnGitGuiClick(object sender, EventArgs e)
 	{
@@ -161,36 +205,11 @@ internal sealed class MainGitMenus : IDisposable
 
 	private void OnCmdClick(object sender, EventArgs e)
 	{
-		var psi = new System.Diagnostics.ProcessStartInfo(@"cmd")
+		var psi = new ProcessStartInfo(@"cmd")
 		{
-			WorkingDirectory = Repository.WorkingDirectory,
+			WorkingDirectory = Repository.WorkingDirectory
 		};
-		System.Diagnostics.Process.Start(psi)?.Dispose();
-	}
-
-	private void OnShowViewItemClick(object sender, EventArgs e)
-	{
-		var guid = (Guid)((ToolStripMenuItem)sender).Tag;
-		Gui.Environment.ViewDockService.ShowView(guid);
-	}
-
-	public Repository Repository
-	{
-		get => _repository;
-		set
-		{
-			if(_repository != value)
-			{
-				if(_repository is not null)
-				{
-					DetachFromRepository(_repository);
-				}
-				if(value is not null)
-				{
-					AttachToRepository(value);
-				}
-			}
-		}
+		Process.Start(psi)?.Dispose();
 	}
 
 	private void AttachToRepository(Repository repository)
@@ -204,19 +223,4 @@ internal sealed class MainGitMenus : IDisposable
 		_gitMenu.Enabled = false;
 		_repository = null;
 	}
-
-	#region IDisposable Members
-
-	public void Dispose()
-	{
-		if(_gitMenu is not null)
-		{
-			_gitMenu.Dispose();
-			_gitMenu = null;
-		}
-		_menus = null;
-		_repository = null;
-	}
-
-	#endregion
 }
